@@ -13,6 +13,9 @@
 <meta name="apple-mobile-web-app-title" content="체중 다이어리" />
 <meta name="apple-mobile-web-app-status-bar-style" content="default" />
 <link rel="preload" href="sunbeams.woff2" as="font" type="font/woff2" crossorigin />
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -20,9 +23,7 @@
   @font-face{
     font-family:'Sunbeams';
     src:url('sunbeams.woff2') format('woff2');
-    font-weight:400;
-    font-style:normal;
-    font-display:swap;
+    font-weight:400; font-style:normal; font-display:swap;
   }
   html,body{margin:0;padding:0;background:#F4F0E6;
     font-family:'Sunbeams','Apple SD Gothic Neo','Malgun Gothic',sans-serif;
@@ -31,6 +32,7 @@
   input,button{font-family:inherit;}
   button:focus-visible{outline:2px solid #3D6042;outline-offset:2px;}
   @keyframes slideup{from{transform:translateY(100%)}to{transform:translateY(0)}}
+  @keyframes shake{10%,90%{transform:translateX(-2px)}20%,80%{transform:translateX(4px)}30%,50%,70%{transform:translateX(-6px)}40%,60%{transform:translateX(6px)}}
   @media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important;}}
 </style>
 </head>
@@ -38,68 +40,177 @@
 <div id="root"></div>
 
 <script type="text/babel">
-const { useState, useMemo, useCallback } = React;
+const { useState, useMemo, useCallback, useEffect } = React;
+
+/* ---------- Firebase ---------- */
+firebase.initializeApp({
+  apiKey: "AIzaSyCrwTI1-ZmxlLNDRD9qiRiMAGG3RO8FAOY",
+  authDomain: "hyojin-inmyprime.firebaseapp.com",
+  projectId: "hyojin-inmyprime",
+  storageBucket: "hyojin-inmyprime.firebasestorage.app",
+  messagingSenderId: "826361488123",
+  appId: "1:826361488123:web:e1c7d393aef9e76333465e"
+});
+const auth = firebase.auth();
+const db = firebase.firestore();
+db.enablePersistence({ synchronizeTabs:true }).catch(() => {});
+const AUTH_MSG = {
+  "auth/invalid-email": "이메일 형식이 아니에요",
+  "auth/user-not-found": "가입 안 된 이메일이에요",
+  "auth/wrong-password": "비밀번호가 달라요",
+  "auth/invalid-credential": "이메일이나 비밀번호가 달라요",
+  "auth/missing-password": "비밀번호를 입력해주세요",
+  "auth/too-many-requests": "시도가 너무 많아요. 잠시 후에 다시",
+  "auth/network-request-failed": "인터넷 연결을 확인해주세요",
+  "auth/unauthorized-domain": "Firebase에 이 주소가 등록 안 됐어요 (승인된 도메인 추가 필요)",
+};
+
+const FONT = "'Sunbeams','Apple SD Gothic Neo','Malgun Gothic',sans-serif";
 
 /* ---------- palette ---------- */
 const C = {
   paper: "#F4F0E6", card: "#FBF9F2", ink: "#25302A", sub: "#79806F",
-  sage: "#3D6042", gold: "#C6A64F", line: "#E6DFCE",
+  sage: "#3D6042", gold: "#C6A64F", line: "#E6DFCE", gray: "#B9BCB2",
   under: "#5BA267", normal: "#E3B23C", ob: "#E0803A",
-  latte: "#9C7A4E", night: "#C2695E", move: "#3D6042",
-  pink: "#C97CA0", period: "#B85C7E", pinkMute: "#A98D99",
+  latte: "#9C7A4E", move: "#3D6042",
+  pink: "#C97CA0", period: "#B85C7E",
 };
 
-/* ---------- BMI 기준 ---------- */
+/* ---------- 설정값 ---------- */
+const DEFAULT_PIN = "0000";
 const BMI_MIN = 15, BMI_MAX = 35, UNDER = 18.5, OBESE = 25;
+
+const MEALS = [
+  { id:"breakfast", label:"아침", color:"#E3B23C" },
+  { id:"lunch",     label:"점심", color:"#D9922E" },
+  { id:"dinner",    label:"저녁", color:"#C97A3A" },
+  { id:"snack",     label:"간식", color:"#C6A64F" },
+  { id:"night",     label:"야식", color:"#C2695E" },
+];
+const BEAUTY = [
+  { id:"lash", label:"속눈썹" },
+  { id:"nail", label:"매니 / 페디" },
+  { id:"wax",  label:"왁싱" },
+  { id:"hair", label:"머리" },
+];
+const MAX_LATTE = 10;
+
 function categoryOf(bmi){
   if (bmi < UNDER) return { key:"under", label:"저체중", color:C.under };
   if (bmi < OBESE) return { key:"normal", label:"표준", color:C.normal };
   return { key:"ob", label:"비만", color:C.ob };
 }
 
-/* ---------- storage (localStorage) ---------- */
+/* ---------- storage ---------- */
 const store = {
   getJSON(k){ try{ const r = localStorage.getItem(k); return r ? JSON.parse(r) : null; }catch{ return null; } },
   setJSON(k,o){ try{ localStorage.setItem(k, JSON.stringify(o)); }catch{} },
+  get(k){ try{ return localStorage.getItem(k); }catch{ return null; } },
+  set(k,v){ try{ localStorage.setItem(k,v); }catch{} },
 };
-const PROFILE_KEY = "wd_profile_v1", LOG_KEY = "wd_log_v2", LOG_KEY_V1 = "wd_log_v1";
+const PROFILE_KEY = "wd_profile_v1", LOG_KEY = "wd_log_v3", LOG_V2 = "wd_log_v2", LOG_V1 = "wd_log_v1";
 
 /* ---------- entry model ---------- */
-const EMPTY = { kg:null, latte:0, snack:false, dinner:false, night:false, cardio:false, strength:false,
-                none:false, lash:false, salon:false, period:false };
+const EMPTY = { kg:null, latte:0, breakfast:false, lunch:false, dinner:false, snack:false, night:false,
+                cardio:false, strength:false, beauty:[], period:false };
 const normalize = e => {
-  if (e == null) return { ...EMPTY };
-  if (typeof e === "number") return { ...EMPTY, kg:e };
-  return { ...EMPTY, ...e };
+  if (e == null) return { ...EMPTY, beauty:[] };
+  if (typeof e === "number") return { ...EMPTY, kg:e, beauty:[] };
+  const o = { ...EMPTY, ...e };
+  o.beauty = Array.isArray(e.beauty) ? e.beauty.slice() : [];
+  /* v2 → v3 */
+  if (e.lash && !o.beauty.includes("lash")) o.beauty.push("lash");
+  if (e.salon && !o.beauty.includes("hair")) o.beauty.push("hair");
+  delete o.lash; delete o.salon; delete o.none;
+  return o;
 };
-const CARE = ["none","lash","salon","period"];
-const hasAny = e => e.kg != null || e.latte > 0 || e.snack || e.dinner || e.night
-  || e.cardio || e.strength || CARE.some(f => e[f]);
-const hasCareDot = e => e.lash || e.salon || e.none;
+const hasAny = e => e.kg != null || e.latte > 0 || MEALS.some(m => e[m.id])
+  || e.cardio || e.strength || e.period || (e.beauty && e.beauty.length > 0);
 
-/* v1(숫자만 저장하던 버전) → v2 자동 이전 */
 function loadLog(){
-  const v2 = store.getJSON(LOG_KEY);
-  if (v2) return v2;
-  const v1 = store.getJSON(LOG_KEY_V1);
-  if (!v1) return {};
+  const v3 = store.getJSON(LOG_KEY);
+  if (v3) return v3;
+  const old = store.getJSON(LOG_V2) || store.getJSON(LOG_V1);
+  if (!old) return {};
   const out = {};
-  Object.entries(v1).forEach(([k,v]) => { const e = normalize(v); if (hasAny(e)) out[k] = e; });
+  Object.entries(old).forEach(([k,v]) => { const e = normalize(v); if (hasAny(e)) out[k] = e; });
   store.setJSON(LOG_KEY, out);
   return out;
 }
 
-/* ---------- date helpers ---------- */
+/* ---------- date ---------- */
 const pad = n => String(n).padStart(2,"0");
 const keyOf = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
 const todayKey = () => keyOf(new Date());
 const WEEKDAYS = ["일","월","화","수","목","금","토"];
 
-const FONT = "'Sunbeams','Apple SD Gothic Neo','Malgun Gothic',sans-serif";
 const titleFont = { fontFamily:FONT, fontWeight:700 };
 const eyebrow = { fontFamily:FONT, fontSize:12.5, letterSpacing:2, color:C.gold, fontWeight:700 };
 
-function App(){
+/* =========================================================
+   APP
+   ========================================================= */
+function Root(){
+  const [user, setUser] = useState(undefined);
+  useEffect(() => auth.onAuthStateChanged(u => setUser(u || null)), []);
+  if (user === undefined) return <Splash />;
+  if (!user) return <Login />;
+  return <App user={user} />;
+}
+
+function Splash(){
+  return (
+    <div style={{ minHeight:"100vh", background:C.paper, display:"flex", alignItems:"center",
+      justifyContent:"center", fontFamily:FONT, color:C.sub, fontSize:14 }}>불러오는 중…</div>
+  );
+}
+
+function Login(){
+  const [email, setEmail] = useState("");
+  const [pw, setPw] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const submit = () => {
+    if (busy) return;
+    setBusy(true); setMsg(null);
+    auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL)
+      .then(() => auth.signInWithEmailAndPassword(email.trim(), pw))
+      .catch(e => { setMsg({ ok:false, t: AUTH_MSG[e.code] || "로그인에 실패했어요" }); setBusy(false); });
+  };
+  const reset = () => {
+    if (!email.trim()) return setMsg({ ok:false, t:"이메일을 먼저 입력해주세요" });
+    auth.sendPasswordResetEmail(email.trim())
+      .then(() => setMsg({ ok:true, t:"재설정 메일을 보냈어요" }))
+      .catch(e => setMsg({ ok:false, t: AUTH_MSG[e.code] || "메일 전송에 실패했어요" }));
+  };
+  const input = { width:"100%", border:`1px solid ${C.line}`, borderRadius:13, padding:"14px",
+    fontSize:16, color:C.ink, background:"#fff", outline:"none", marginBottom:9 };
+  return (
+    <div style={{ minHeight:"100vh", background:C.paper, display:"flex", flexDirection:"column",
+      alignItems:"center", justifyContent:"center", fontFamily:FONT, padding:24 }}>
+      <div style={{ width:"100%", maxWidth:340, textAlign:"center" }}>
+        <img src="icon-192.png" alt="" style={{ width:72, height:72, borderRadius:22, objectFit:"cover",
+          boxShadow:"0 6px 18px rgba(37,48,42,.18)" }} />
+        <div style={{ ...titleFont, fontSize:20, color:C.ink, marginTop:14 }}>나비의 체중 다이어리</div>
+        <div style={{ fontSize:12.5, color:C.sub, margin:"4px 0 22px" }}>나만 볼 수 있어요</div>
+        <input type="email" inputMode="email" autoComplete="username" placeholder="이메일"
+          value={email} onChange={e => { setEmail(e.target.value); setMsg(null); }} style={input} />
+        <input type="password" autoComplete="current-password" placeholder="비밀번호"
+          value={pw} onChange={e => { setPw(e.target.value); setMsg(null); }}
+          onKeyDown={e => e.key === "Enter" && submit()} style={input} />
+        <button onClick={submit} disabled={busy} style={{ width:"100%", border:"none", borderRadius:13,
+          padding:"14px", background: busy ? C.line : C.sage, color:"#FBF9F2", fontSize:15,
+          fontWeight:700, cursor:"pointer", marginTop:4 }}>{busy ? "들어가는 중…" : "로그인"}</button>
+        {msg && <div style={{ marginTop:10, fontSize:12.5, fontWeight:700,
+          color: msg.ok ? C.sage : C.period, lineHeight:1.5 }}>{msg.t}</div>}
+        <button onClick={reset} style={{ marginTop:16, background:"none", border:"none",
+          color:C.sub, fontSize:12.5, textDecoration:"underline", cursor:"pointer" }}>비밀번호를 잊었어요</button>
+      </div>
+    </div>
+  );
+}
+
+function App({ user }){
   const [profile, setProfileState] = useState(() => store.getJSON(PROFILE_KEY));
   const [log, setLogState] = useState(loadLog);
   const now = new Date();
@@ -110,8 +221,28 @@ function App(){
   const [kgText, setKgText] = useState("");
   const [showSettings, setShowSettings] = useState(false);
 
-  const saveProfile = useCallback(p => { setProfileState(p); store.setJSON(PROFILE_KEY, p); }, []);
-  const saveLog = useCallback(next => { setLogState(next); store.setJSON(LOG_KEY, next); }, []);
+  const [sync, setSync] = useState("연결 중…");
+  const ref = useMemo(() => db.collection("users").doc(user.uid), [user.uid]);
+
+  useEffect(() => {
+    const unsub = ref.onSnapshot(snap => {
+      setSync(snap.metadata.fromCache ? "오프라인 (이 폰에 저장됨)" : "동기화됨");
+      const d = snap.data();
+      if (d){
+        if (d.log){ setLogState(d.log); store.setJSON(LOG_KEY, d.log); }
+        if (d.profile){ setProfileState(d.profile); store.setJSON(PROFILE_KEY, d.profile); }
+      } else {
+        const local = store.getJSON(LOG_KEY) || {};
+        const lp = store.getJSON(PROFILE_KEY);
+        ref.set({ log:local, profile: lp || null }, { merge:true }).catch(() => {});
+      }
+    }, () => setSync("동기화 실패 — 이 폰에만 저장돼요"));
+    return unsub;
+  }, [ref]);
+
+  const push = obj => { ref.set(obj, { merge:true }).catch(() => {}); };
+  const saveProfile = useCallback(p => { setProfileState(p); store.setJSON(PROFILE_KEY, p); push({ profile:p }); }, [ref]);
+  const saveLog = useCallback(next => { setLogState(next); store.setJSON(LOG_KEY, next); push({ log:next }); }, [ref]);
 
   const stats = useMemo(() => {
     const entries = Object.entries(log).map(([k,v]) => [k, normalize(v)])
@@ -126,30 +257,29 @@ function App(){
     const toGoal = curKg - profile.goalKg;
     const total = startKg - profile.goalKg;
     const progress = total > 0 ? Math.max(0, Math.min(1, lost/total)) : (lost >= 0 ? 1 : 0);
-    return { startKg, curKg, curDate, bmi, lost, toGoal, progress, count: entries.length };
+    return { startKg, curKg, curDate, bmi, lost, toGoal, progress };
   }, [log, profile]);
 
   const monthly = useMemo(() => {
     const prefix = `${viewY}-${pad(viewM+1)}-`;
     const list = Object.entries(log).filter(([k]) => k.startsWith(prefix)).map(([,v]) => normalize(v));
+    const m = {};
+    MEALS.forEach(x => { m[x.id] = list.filter(e => e[x.id]).length; });
+    const b = {};
+    BEAUTY.forEach(x => { b[x.id] = list.filter(e => e.beauty.includes(x.id)).length; });
     return {
+      meals:m, beauty:b, logged:list.length,
       latte: list.reduce((s,e) => s + (e.latte||0), 0),
-      snack: list.filter(e => e.snack).length,
-      dinner: list.filter(e => e.dinner).length,
-      night: list.filter(e => e.night).length,
       cardio: list.filter(e => e.cardio).length,
       strength: list.filter(e => e.strength).length,
       move: list.filter(e => e.cardio || e.strength).length,
-      lash: list.filter(e => e.lash).length,
-      salon: list.filter(e => e.salon).length,
       period: list.filter(e => e.period).length,
-      logged: list.length,
+      beautyDays: list.filter(e => e.beauty.length > 0).length,
     };
   }, [log, viewY, viewM]);
 
   const cells = useMemo(() => {
-    const first = new Date(viewY, viewM, 1);
-    const lead = first.getDay();
+    const lead = new Date(viewY, viewM, 1).getDay();
     const days = new Date(viewY, viewM+1, 0).getDate();
     const arr = [];
     for (let i=0;i<lead;i++) arr.push(null);
@@ -174,6 +304,13 @@ function App(){
     saveLog(next); setEditDate(null);
   };
   const removeEntry = () => { const next = { ...log }; delete next[editDate]; saveLog(next); setEditDate(null); };
+  const importBackup = data => {
+    const merged = { ...log };
+    Object.entries(data.log).forEach(([k,v]) => { const e = normalize(v); if (hasAny(e)) merged[k] = e; });
+    saveLog(merged);
+    if (data.profile && data.profile.heightCm && data.profile.goalKg) saveProfile(data.profile);
+    return Object.keys(data.log).length;
+  };
   const prevMonth = () => { const m = viewM-1; if (m<0){ setViewM(11); setViewY(viewY-1);} else setViewM(m); };
   const nextMonth = () => { const m = viewM+1; if (m>11){ setViewM(0); setViewY(viewY+1);} else setViewM(m); };
 
@@ -181,9 +318,6 @@ function App(){
 
   const todayEntry = normalize(log[tKey]);
   const todayLogged = hasAny(todayEntry);
-  const todayLabel = todayEntry.kg != null
-    ? `오늘 ${todayEntry.kg}kg · 수정하기`
-    : todayLogged ? "오늘 기록 이어서 쓰기" : "＋ 오늘 기록하기";
 
   return (
     <Shell>
@@ -191,6 +325,9 @@ function App(){
         <div style={eyebrow}>DAILY WEIGHT DIARY</div>
         <h1 style={{ ...titleFont, fontSize:27, color:C.ink, margin:"4px 0 0" }}>나비의 체중 다이어리</h1>
         <div style={{ color:C.sub, fontSize:12.5, marginTop:4 }}>키 {profile.heightCm}cm 고정 · 목표 {profile.goalKg}kg</div>
+        <div style={{ fontSize:11, color: sync === "동기화됨" ? C.sage : C.sub, marginTop:3, fontWeight:700 }}>
+          {sync === "동기화됨" ? "☁︎ 동기화됨" : sync}
+        </div>
       </div>
 
       <Card>
@@ -205,11 +342,11 @@ function App(){
       <button onClick={() => openEditor(tKey)} style={{
         width:"100%", border:"none", borderRadius:14, padding:"14px 16px", marginTop:12,
         background: todayLogged ? C.card : C.sage, color: todayLogged ? C.ink : "#FBF9F2",
-        fontSize:15, fontWeight:600, cursor:"pointer",
+        fontSize:15, fontWeight:700, cursor:"pointer",
         boxShadow: todayLogged ? `inset 0 0 0 1px ${C.line}` : "0 6px 16px rgba(61,96,66,.22)" }}>
-        {todayLabel}
+        {todayEntry.kg != null ? `오늘 ${todayEntry.kg}kg · 수정하기`
+          : todayLogged ? "오늘 기록 이어서 쓰기" : "＋ 오늘 기록하기"}
       </button>
-
       {todayLogged && <TodayMarks e={todayEntry} />}
 
       {stats && (
@@ -230,7 +367,7 @@ function App(){
             <div style={{ width:`${Math.round(stats.progress*100)}%`, height:"100%", borderRadius:99,
               background:`linear-gradient(90deg, ${C.sage}, ${C.gold})`, transition:"width .5s ease" }} />
           </div>
-          <div style={{ textAlign:"right", fontSize:11.5, color:C.sage, marginTop:4, fontWeight:600 }}>
+          <div style={{ textAlign:"right", fontSize:11.5, color:C.sage, marginTop:4, fontWeight:700 }}>
             {Math.round(stats.progress*100)}% 달성
           </div>
         </div>
@@ -244,7 +381,7 @@ function App(){
         </div>
         <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:4 }}>
           {WEEKDAYS.map((w,i) => (
-            <div key={w} style={{ textAlign:"center", fontSize:11, fontWeight:600, paddingBottom:4,
+            <div key={w} style={{ textAlign:"center", fontSize:11, fontWeight:700, paddingBottom:4,
               color: i===0 ? "#C2695E" : i===6 ? "#6E86B0" : C.sub }}>{w}</div>
           ))}
           {cells.map((d,i) => {
@@ -265,9 +402,9 @@ function App(){
                 <span style={{ display:"flex", gap:2.5, height:5, marginTop:3, alignItems:"center" }}>
                   {c && <Dot color={c.color} />}
                   {e.latte > 0 && <Dot color={C.latte} />}
-                  {e.night && <Dot color={C.night} />}
+                  {e.night && <Dot color="#C2695E" />}
                   {(e.cardio || e.strength) && <Dot color={C.move} ring />}
-                  {hasCareDot(e) && <Dot color={e.none ? C.pinkMute : C.pink} />}
+                  {e.beauty.length > 0 && <Dot color={C.pink} />}
                 </span>
                 {e.period && <span style={{ position:"absolute", left:7, right:7, bottom:3.5,
                   height:2.5, borderRadius:2, background:C.period }} />}
@@ -276,33 +413,35 @@ function App(){
           })}
         </div>
         <div style={{ display:"flex", gap:12, justifyContent:"center", marginTop:12, flexWrap:"wrap" }}>
-          <Legend color={C.under} text="저체중 <18.5" />
-          <Legend color={C.normal} text="표준 18.5–25" />
-          <Legend color={C.ob} text="비만 ≥25" />
-          <Legend color={C.latte} text="라떼" />
-          <Legend color={C.night} text="야식" />
-          <Legend color={C.move} text="운동" ring />
-          <Legend color={C.pink} text="속눈썹 · 미용실" />
-          <Legend color={C.period} text="생리" bar />
+          <Legend color={C.under} text="저체중" /><Legend color={C.normal} text="표준" />
+          <Legend color={C.ob} text="비만" /><Legend color={C.latte} text="라떼" />
+          <Legend color="#C2695E" text="야식" /><Legend color={C.move} text="운동" ring />
+          <Legend color={C.pink} text="뷰티" /><Legend color={C.period} text="생리" bar />
         </div>
       </Card>
 
       <Card style={{ marginTop:12 }}>
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", marginBottom:12 }}>
-          <div style={{ ...titleFont, fontSize:16, color:C.ink }}>{viewM+1}월 습관</div>
-          <div style={{ fontSize:11.5, color:C.sub }}>기록 {monthly.logged}일</div>
+          <div style={{ ...titleFont, fontSize:16, color:C.ink }}>{viewM+1}월 기록</div>
+          <div style={{ fontSize:11.5, color:C.sub }}>{monthly.logged}일</div>
         </div>
         <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8 }}>
           <Tally label="바닐라라떼" value={monthly.latte} unit="잔" color={C.latte} />
-          <Tally label="간식" value={monthly.snack} unit="일" color={C.gold} />
-          <Tally label="저녁" value={monthly.dinner} unit="일" color={C.normal} />
-          <Tally label="야식" value={monthly.night} unit="일" color={C.night} />
+          {MEALS.map(m => <Tally key={m.id} label={m.label} value={monthly.meals[m.id]} unit="일" color={m.color} />)}
           <Tally label="유산소" value={monthly.cardio} unit="일" color={C.sage} />
           <Tally label="근력" value={monthly.strength} unit="일" color={C.sage} />
-          <Tally label="속눈썹" value={monthly.lash} unit="일" color={C.pink} />
-          <Tally label="미용실" value={monthly.salon} unit="일" color={C.pink} />
           <Tally label="생리" value={monthly.period} unit="일" color={C.period} />
         </div>
+        {monthly.beautyDays > 0 && (
+          <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginTop:10, justifyContent:"center" }}>
+            {BEAUTY.filter(b => monthly.beauty[b.id] > 0).map(b => (
+              <span key={b.id} style={{ fontSize:11.5, fontWeight:700, color:C.pink, background:`${C.pink}14`,
+                border:`1px solid ${C.pink}40`, padding:"4px 10px", borderRadius:99 }}>
+                {b.label} {monthly.beauty[b.id]}
+              </span>
+            ))}
+          </div>
+        )}
         <div style={{ fontSize:12, color:C.sub, marginTop:12, textAlign:"center" }}>
           운동한 날 <b style={{ color:C.sage }}>{monthly.move}일</b>
           {monthly.latte > 0 && <> · 라떼 하루 평균 <b style={{ color:C.latte }}>{(monthly.latte/Math.max(1,monthly.logged)).toFixed(1)}잔</b></>}
@@ -312,11 +451,19 @@ function App(){
       <button onClick={() => setShowSettings(s => !s)} style={{
         marginTop:14, width:"100%", background:"none", border:"none", color:C.sub,
         fontSize:13, cursor:"pointer", textDecoration:"underline" }}>
-        {showSettings ? "설정 닫기" : "키 · 목표 체중 수정"}
+        {showSettings ? "설정 닫기" : "설정 (키 · 목표 · 백업 · 계정)"}
       </button>
       {showSettings && (
         <Card style={{ marginTop:10 }}>
           <Setup initial={profile} compact onSave={p => { saveProfile(p); setShowSettings(false); }} />
+          <div style={{ height:1, background:C.line, margin:"18px 0" }} />
+          <DataBackup log={log} profile={profile} onImport={importBackup} />
+          <div style={{ height:1, background:C.line, margin:"18px 0" }} />
+          <div style={{ ...titleFont, fontSize:15, color:C.ink, marginBottom:4 }}>계정</div>
+          <div style={{ fontSize:11.5, color:C.sub, marginBottom:10 }}>{user.email}</div>
+          <button onClick={() => auth.signOut()} style={{ width:"100%", border:`1px solid ${C.line}`,
+            borderRadius:13, padding:"12px", background:"#fff", color:C.period, fontSize:14,
+            fontWeight:700, cursor:"pointer" }}>로그아웃</button>
         </Card>
       )}
 
@@ -326,18 +473,16 @@ function App(){
         <Editor dateKey={editDate} draft={draft} patch={patch}
           kgText={kgText} setKgText={setKgText}
           onCommit={commitEdit} onDelete={hasAny(normalize(log[editDate])) ? removeEntry : null}
-          onClose={() => setEditDate(null)}
-          bmiPreview={heightM && parseFloat(kgText) > 0 ? categoryOf(parseFloat(kgText)/(heightM*heightM)) : null}
-          bmiVal={heightM && parseFloat(kgText) > 0 ? parseFloat(kgText)/(heightM*heightM) : null} />
+          onClose={() => setEditDate(null)} heightM={heightM} />
       )}
     </Shell>
   );
 }
 
+/* ---------- 공통 ---------- */
 function Shell({ children }){
   return (
-    <div style={{ minHeight:"100vh", background:C.paper, display:"flex", justifyContent:"center",
-      fontFamily:FONT }}>
+    <div style={{ minHeight:"100vh", background:C.paper, display:"flex", justifyContent:"center", fontFamily:FONT }}>
       <div style={{ width:"100%", maxWidth:460, padding:"26px 18px 40px" }}>{children}</div>
     </div>
   );
@@ -353,20 +498,16 @@ function Dot({ color, ring }){
 function TodayMarks({ e }){
   const items = [];
   if (e.latte > 0) items.push({ t:`라떼 ${e.latte}잔`, c:C.latte });
-  if (e.snack) items.push({ t:"간식", c:C.gold });
-  if (e.dinner) items.push({ t:"저녁", c:C.normal });
-  if (e.night) items.push({ t:"야식", c:C.night });
+  MEALS.forEach(m => { if (e[m.id]) items.push({ t:m.label, c:m.color }); });
   if (e.cardio) items.push({ t:"유산소", c:C.sage });
   if (e.strength) items.push({ t:"근력", c:C.sage });
-  if (e.lash) items.push({ t:"속눈썹", c:C.pink });
-  if (e.salon) items.push({ t:"미용실", c:C.pink });
+  e.beauty.forEach(id => { const b = BEAUTY.find(x => x.id===id); if (b) items.push({ t:b.label, c:C.pink }); });
   if (e.period) items.push({ t:"생리중", c:C.period });
-  if (e.none) items.push({ t:"해당없음", c:C.pinkMute });
   if (!items.length) return null;
   return (
     <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginTop:8, justifyContent:"center" }}>
       {items.map(i => (
-        <span key={i.t} style={{ fontSize:11.5, fontWeight:600, color:i.c, background:`${i.c}14`,
+        <span key={i.t} style={{ fontSize:11.5, fontWeight:700, color:i.c, background:`${i.c}14`,
           border:`1px solid ${i.c}40`, padding:"4px 10px", borderRadius:99 }}>{i.t}</span>
       ))}
     </div>
@@ -374,7 +515,7 @@ function TodayMarks({ e }){
 }
 function Tally({ label, value, unit, color }){
   return (
-    <div style={{ background:"#fff", border:`1px solid ${C.line}`, borderRadius:13, padding:"10px 8px", textAlign:"center" }}>
+    <div style={{ background:"#fff", border:`1px solid ${C.line}`, borderRadius:13, padding:"10px 6px", textAlign:"center" }}>
       <div style={{ fontSize:11.5, color:C.sub }}>{label}</div>
       <div style={{ marginTop:2 }}>
         <span style={{ fontSize:21, fontWeight:700, color: value ? color : C.line }}>{value}</span>
@@ -420,10 +561,10 @@ function BmiHero({ stats }){
 function StatCard({ label, value, hint, accent }){
   return (
     <div style={{ flex:1, background:C.card, border:`1px solid ${C.line}`, borderRadius:16,
-      padding:"14px 14px", borderTop:`3px solid ${accent}` }}>
+      padding:"14px", borderTop:`3px solid ${accent}` }}>
       <div style={{ fontSize:12, color:C.sub }}>{label}</div>
-      <div style={{ fontSize:25, fontWeight:700, color:C.ink, marginTop:2, letterSpacing:-0.5 }}>{value}</div>
-      <div style={{ fontSize:11.5, color:accent, marginTop:1, fontWeight:600 }}>{hint}</div>
+      <div style={{ fontSize:25, fontWeight:700, color:C.ink, marginTop:2 }}>{value}</div>
+      <div style={{ fontSize:11.5, color:accent, marginTop:1, fontWeight:700 }}>{hint}</div>
     </div>
   );
 }
@@ -431,8 +572,7 @@ function Legend({ color, text, ring, bar }){
   return (
     <div style={{ display:"flex", alignItems:"center", gap:5 }}>
       <span style={{ width:9, height: bar ? 2.5 : 9, borderRadius: bar ? 2 : 3,
-        background: ring ? "transparent" : color,
-        boxShadow: ring ? `inset 0 0 0 2px ${color}` : "none" }} />
+        background: ring ? "transparent" : color, boxShadow: ring ? `inset 0 0 0 2px ${color}` : "none" }} />
       <span style={{ fontSize:11, color:C.sub }}>{text}</span>
     </div>
   );
@@ -440,6 +580,17 @@ function Legend({ color, text, ring, bar }){
 function IconBtn({ children, onClick, ...rest }){
   return <button onClick={onClick} {...rest} style={{ width:34, height:34, borderRadius:10,
     border:`1px solid ${C.line}`, background:C.card, color:C.ink, fontSize:20, lineHeight:1, cursor:"pointer" }}>{children}</button>;
+}
+function Field({ label, value, onChange, placeholder, maxLength }){
+  return (
+    <div style={{ marginBottom:12 }}>
+      <label style={{ fontSize:12.5, color:C.sub, display:"block", marginBottom:5 }}>{label}</label>
+      <input type="text" inputMode="decimal" value={value} placeholder={placeholder} maxLength={maxLength}
+        onChange={e => onChange(e.target.value.replace(/[^0-9.]/g,""))}
+        style={{ width:"100%", border:`1px solid ${C.line}`, borderRadius:12, padding:"13px 14px",
+          fontSize:17, color:C.ink, background:"#fff", outline:"none" }} />
+    </div>
+  );
 }
 function Setup({ onSave, initial, compact }){
   const [h, setH] = useState(initial ? String(initial.heightCm) : "");
@@ -465,110 +616,191 @@ function Setup({ onSave, initial, compact }){
     </div>
   );
 }
-function Field({ label, value, onChange, placeholder }){
+function DataBackup({ log, profile, onImport }){
+  const [msg, setMsg] = useState(null);
+  const exportData = () => {
+    try{
+      const payload = { app:"nabi-weight-diary", version:3, exportedAt:new Date().toISOString(), profile, log };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type:"application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = `diary-backup-${todayKey()}.json`;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1500);
+      setMsg({ ok:true, t:"백업 파일을 저장했어요" });
+    }catch{ setMsg({ ok:false, t:"저장에 실패했어요" }); }
+  };
+  const importData = ev => {
+    const f = ev.target.files && ev.target.files[0];
+    ev.target.value = "";
+    if (!f) return;
+    const r = new FileReader();
+    r.onload = () => {
+      try{
+        const d = JSON.parse(r.result);
+        if (!d || typeof d !== "object" || !d.log) throw new Error("bad");
+        const n = onImport(d);
+        setMsg({ ok:true, t:`${n}일치를 불러왔어요` });
+      }catch{ setMsg({ ok:false, t:"이 파일은 읽을 수 없어요" }); }
+    };
+    r.readAsText(f);
+  };
+  const btn = { flex:1, borderRadius:13, padding:"12px", fontSize:14, fontWeight:700, cursor:"pointer",
+    border:`1px solid ${C.line}`, background:"#fff", color:C.ink, textAlign:"center" };
   return (
-    <div style={{ marginBottom:12 }}>
-      <label style={{ fontSize:12.5, color:C.sub, display:"block", marginBottom:5 }}>{label}</label>
-      <input type="text" inputMode="decimal" value={value} placeholder={placeholder}
-        onChange={e => onChange(e.target.value.replace(/[^0-9.]/g,""))}
-        style={{ width:"100%", border:`1px solid ${C.line}`, borderRadius:12, padding:"13px 14px",
-          fontSize:17, color:C.ink, background:"#fff", outline:"none" }} />
+    <div>
+      <div style={{ ...titleFont, fontSize:15, color:C.ink, marginBottom:4 }}>백업 · 복원</div>
+      <div style={{ fontSize:11.5, color:C.sub, marginBottom:10, lineHeight:1.6 }}>
+        기록은 Firebase에 저장돼서 폰을 바꿔도 남아요. 그래도 가끔 파일로 내보내두면 안심이에요.
+      </div>
+      <div style={{ display:"flex", gap:8 }}>
+        <button onClick={exportData} style={btn}>내보내기</button>
+        <label style={{ ...btn, display:"block" }}>
+          가져오기
+          <input type="file" accept="application/json,.json" onChange={importData} style={{ display:"none" }} />
+        </label>
+      </div>
+      {msg && <div style={{ textAlign:"center", marginTop:8, fontSize:12.5, fontWeight:700,
+        color: msg.ok ? C.sage : C.period }}>{msg.t}</div>}
     </div>
   );
 }
-function SheetLabel({ children }){
-  return <div style={{ fontSize:12, color:C.sub, fontWeight:600, marginBottom:7 }}>{children}</div>;
+
+/* ---------- 입력 시트 ---------- */
+function SheetLabel({ children, right }){
+  return (
+    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", marginBottom:7 }}>
+      <span style={{ fontSize:12, color:C.sub, fontWeight:700 }}>{children}</span>
+      {right}
+    </div>
+  );
 }
 function Stepper({ value, onChange, color }){
   const btn = active => ({ width:44, height:44, borderRadius:12, border:`1px solid ${C.line}`,
-    background:"#fff", color: active ? color : C.line, fontSize:22, fontWeight:700,
-    lineHeight:1, cursor: active ? "pointer" : "default" });
+    background:"#fff", color: active ? color : C.line, fontSize:22, fontWeight:700, lineHeight:1,
+    cursor: active ? "pointer" : "default" });
   return (
     <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between",
       background:"#fff", border:`1px solid ${value > 0 ? color : C.line}`, borderRadius:14, padding:8 }}>
-      <button aria-label="한 잔 빼기" disabled={value <= 0} onClick={() => onChange(Math.max(0, value-1))} style={btn(value > 0)}>−</button>
+      <button aria-label="빼기" disabled={value <= 0} onClick={() => onChange(Math.max(0, value-1))} style={btn(value > 0)}>−</button>
       <div style={{ display:"flex", alignItems:"baseline", gap:4 }}>
-        <span style={{ fontSize:26, fontWeight:700, color: value > 0 ? color : C.line, minWidth:26, textAlign:"center" }}>{value}</span>
-        <span style={{ fontSize:14, color:C.sub, fontWeight:600 }}>잔</span>
+        <span style={{ fontSize:26, fontWeight:700, color: value > 0 ? color : C.gray, minWidth:26, textAlign:"center" }}>{value}</span>
+        <span style={{ fontSize:14, color:C.sub, fontWeight:700 }}>잔</span>
       </div>
-      <button aria-label="한 잔 더하기" disabled={value >= 20} onClick={() => onChange(Math.min(20, value+1))} style={btn(value < 20)}>＋</button>
+      <button aria-label="더하기" disabled={value >= MAX_LATTE} onClick={() => onChange(Math.min(MAX_LATTE, value+1))} style={btn(value < MAX_LATTE)}>＋</button>
     </div>
   );
 }
-function Chip({ label, active, color, onClick }){
+function Chip({ label, active, color, onClick, small }){
   return (
-    <button onClick={onClick} aria-pressed={active} style={{ flex:1, padding:"12px 0", borderRadius:12,
-      border: active ? `1.5px solid ${color}` : `1px solid ${C.line}`,
-      background: active ? `${color}18` : "#fff", color: active ? color : C.sub,
-      fontSize:14, fontWeight: active ? 700 : 500, cursor:"pointer", transition:"background .15s ease" }}>
-      {active ? `✓ ${label}` : label}
+    <button onClick={onClick} aria-pressed={active} style={{ flex:1, padding: small ? "9px 0" : "12px 0",
+      borderRadius:12, border: active ? `1.5px solid ${color}` : `1px solid ${C.line}`,
+      background: active ? `${color}1F` : "#F3F2EC", color: active ? color : C.gray,
+      fontSize: small ? 13 : 14, fontWeight:700, cursor:"pointer", transition:"all .15s ease" }}>
+      {label}
     </button>
   );
 }
-function Editor({ dateKey, draft, patch, kgText, setKgText, onCommit, onDelete, onClose, bmiPreview, bmiVal }){
-  /* '해당없음'은 나머지 셋과 배타 선택 */
-  const toggleCare = f => {
-    if (f === "none") patch({ none: !draft.none, lash:false, salon:false, period:false });
-    else patch({ [f]: !draft[f], none:false });
+function Editor({ dateKey, draft, patch, kgText, setKgText, onCommit, onDelete, onClose, heightM }){
+  const [beautyOpen, setBeautyOpen] = useState(draft.beauty.length > 0);
+  const kg = parseFloat(kgText);
+  const cat = heightM && kg > 0 ? categoryOf(kg/(heightM*heightM)) : null;
+  const dObj = new Date(dateKey + "T00:00:00");
+  const day = dObj.getDate();
+  const wd = WEEKDAYS[dObj.getDay()];
+  const wdColor = dObj.getDay() === 0 ? "#C2695E" : dObj.getDay() === 6 ? "#6E86B0" : C.sub;
+  const toggleBeauty = id => {
+    const has = draft.beauty.includes(id);
+    patch({ beauty: has ? draft.beauty.filter(x => x !== id) : [...draft.beauty, id] });
   };
+  const beautyText = draft.beauty.length === 0 ? "해당없음"
+    : BEAUTY.filter(b => draft.beauty.includes(b.id)).map(b => b.label).join(" · ");
   return (
     <div onClick={onClose} style={{ position:"fixed", inset:0, background:"rgba(37,48,42,.28)",
       display:"flex", alignItems:"flex-end", justifyContent:"center", zIndex:50 }}>
       <div onClick={e => e.stopPropagation()} style={{ width:"100%", maxWidth:460, background:C.card,
-        borderRadius:"22px 22px 0 0", padding:"20px 20px 26px", boxShadow:"0 -8px 30px rgba(0,0,0,.15)",
+        borderRadius:"22px 22px 0 0", padding:"18px 20px 26px", boxShadow:"0 -8px 30px rgba(0,0,0,.15)",
         animation:"slideup .25s ease", maxHeight:"92vh", overflowY:"auto" }}>
-        <div style={{ width:40, height:4, borderRadius:99, background:C.line, margin:"0 auto 16px" }} />
-        <div style={{ fontSize:13, color:C.sub, marginBottom:3 }}>{dateKey}</div>
-        <div style={{ ...titleFont, fontSize:18, color:C.ink, marginBottom:14 }}>오늘 기록</div>
+        <div style={{ width:40, height:4, borderRadius:99, background:C.line, margin:"0 auto 14px" }} />
 
-        <SheetLabel>몸무게</SheetLabel>
-        <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-          <input autoFocus type="text" inputMode="decimal" value={kgText} placeholder="0.0"
-            onChange={e => setKgText(e.target.value.replace(/[^0-9.]/g,""))}
-            style={{ flex:1, border:`1.5px solid ${bmiPreview ? bmiPreview.color : C.line}`, borderRadius:14,
-              padding:"16px 16px", fontSize:26, fontWeight:700, color:C.ink, background:"#fff",
-              outline:"none", textAlign:"center" }} />
-          <span style={{ fontSize:18, color:C.sub, fontWeight:600 }}>kg</span>
+        {/* 19  몸무게 ○ */}
+        <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+          <div style={{ minWidth:46, textAlign:"center" }}>
+            <div style={{ ...titleFont, fontSize:30, color:C.ink, lineHeight:1 }}>{day}</div>
+            <div style={{ fontSize:10.5, color:wdColor, marginTop:3, fontWeight:700 }}>{dObj.getMonth()+1}월 {wd}</div>
+          </div>
+          <div style={{ flex:1, display:"flex", alignItems:"center", gap:8,
+            border:`1.5px solid ${cat ? cat.color : C.line}`, borderRadius:14, background:"#fff", padding:"0 12px" }}>
+            <input autoFocus type="text" inputMode="decimal" value={kgText} placeholder="몸무게"
+              onChange={e => setKgText(e.target.value.replace(/[^0-9.]/g,""))}
+              style={{ flex:1, border:"none", outline:"none", background:"transparent",
+                padding:"14px 0", fontSize:22, fontWeight:700, color:C.ink }} />
+            <span style={{ fontSize:14, color:C.sub, fontWeight:700 }}>kg</span>
+          </div>
+          <span title={cat ? cat.label : ""} style={{ width:30, height:30, borderRadius:99, flexShrink:0,
+            background: cat ? cat.color : "transparent", boxShadow: `inset 0 0 0 ${cat ? 0 : 1.5}px ${C.line}` }} />
         </div>
-        {bmiPreview && (
-          <div style={{ textAlign:"center", marginTop:10, fontSize:13.5, color:C.sub }}>
-            BMI <b style={{ color:C.ink }}>{bmiVal.toFixed(1)}</b> · <span style={{ color:bmiPreview.color, fontWeight:700 }}>{bmiPreview.label}</span>
+        {cat && (
+          <div style={{ textAlign:"right", marginTop:6, fontSize:12.5, color:C.sub }}>
+            BMI <b style={{ color:C.ink }}>{(kg/(heightM*heightM)).toFixed(1)}</b> · <b style={{ color:cat.color }}>{cat.label}</b>
           </div>
         )}
 
-        <div style={{ height:1, background:C.line, margin:"18px 0" }} />
-
+        <div style={{ height:18 }} />
         <SheetLabel>바닐라라떼</SheetLabel>
         <Stepper value={draft.latte} onChange={v => patch({ latte:v })} color={C.latte} />
 
         <div style={{ height:16 }} />
         <SheetLabel>먹은 것</SheetLabel>
-        <div style={{ display:"flex", gap:8 }}>
-          <Chip label="간식" active={draft.snack} color={C.gold} onClick={() => patch({ snack: !draft.snack })} />
-          <Chip label="저녁" active={draft.dinner} color={C.normal} onClick={() => patch({ dinner: !draft.dinner })} />
-          <Chip label="야식" active={draft.night} color={C.night} onClick={() => patch({ night: !draft.night })} />
+        <div style={{ display:"flex", gap:6 }}>
+          {MEALS.slice(0,3).map(m => (
+            <Chip key={m.id} label={m.label} active={draft[m.id]} color={m.color} onClick={() => patch({ [m.id]: !draft[m.id] })} />
+          ))}
+        </div>
+        <div style={{ display:"flex", gap:6, marginTop:6 }}>
+          {MEALS.slice(3).map(m => (
+            <Chip key={m.id} label={m.label} active={draft[m.id]} color={m.color} onClick={() => patch({ [m.id]: !draft[m.id] })} />
+          ))}
+          <span style={{ flex:1 }} />
         </div>
 
         <div style={{ height:16 }} />
         <SheetLabel>운동</SheetLabel>
-        <div style={{ display:"flex", gap:8 }}>
+        <div style={{ display:"flex", gap:6 }}>
           <Chip label="유산소" active={draft.cardio} color={C.sage} onClick={() => patch({ cardio: !draft.cardio })} />
           <Chip label="근력" active={draft.strength} color={C.sage} onClick={() => patch({ strength: !draft.strength })} />
         </div>
 
         <div style={{ height:16 }} />
-        <SheetLabel>케어 · 컨디션</SheetLabel>
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
-          <Chip label="해당없음" active={draft.none} color={C.pinkMute} onClick={() => toggleCare("none")} />
-          <Chip label="속눈썹" active={draft.lash} color={C.pink} onClick={() => toggleCare("lash")} />
-          <Chip label="미용실" active={draft.salon} color={C.pink} onClick={() => toggleCare("salon")} />
-          <Chip label="생리중" active={draft.period} color={C.period} onClick={() => toggleCare("period")} />
+        <SheetLabel right={<span style={{ fontSize:11, color:C.sub }}>복수 선택 가능</span>}>BEAUTY</SheetLabel>
+        <button onClick={() => setBeautyOpen(o => !o)} style={{ width:"100%", display:"flex",
+          alignItems:"center", justifyContent:"space-between", background:"#fff", cursor:"pointer",
+          border:`1.5px solid ${draft.beauty.length ? C.pink : C.line}`, borderRadius:14, padding:"13px 14px" }}>
+          <span style={{ fontSize:14.5, fontWeight:700, color: draft.beauty.length ? C.pink : C.gray }}>{beautyText}</span>
+          <span style={{ fontSize:12, color:C.sub, transform: beautyOpen ? "rotate(180deg)" : "none" }}>▾</span>
+        </button>
+        {beautyOpen && (
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:6, marginTop:6 }}>
+            {BEAUTY.map(b => (
+              <Chip key={b.id} small label={b.label} active={draft.beauty.includes(b.id)}
+                color={C.pink} onClick={() => toggleBeauty(b.id)} />
+            ))}
+            <Chip small label="해당없음" active={draft.beauty.length === 0} color={C.gray}
+              onClick={() => patch({ beauty: [] })} />
+          </div>
+        )}
+
+        <div style={{ height:16 }} />
+        <SheetLabel>컨디션</SheetLabel>
+        <div style={{ display:"flex", gap:6 }}>
+          <Chip label="생리중" active={draft.period} color={C.period} onClick={() => patch({ period: !draft.period })} />
+          <span style={{ flex:1 }} />
         </div>
 
-        <div style={{ display:"flex", gap:10, marginTop:20 }}>
+        <div style={{ display:"flex", gap:10, marginTop:22 }}>
           {onDelete && (
             <button onClick={onDelete} style={{ flex:"0 0 auto", padding:"14px 18px", borderRadius:13,
-              border:`1px solid ${C.line}`, background:"#fff", color:"#C2695E", fontSize:14, fontWeight:600, cursor:"pointer" }}>삭제</button>
+              border:`1px solid ${C.line}`, background:"#fff", color:C.period, fontSize:14, fontWeight:700, cursor:"pointer" }}>삭제</button>
           )}
           <button onClick={onCommit} style={{ flex:1, padding:"14px", borderRadius:13, border:"none",
             background:C.sage, color:"#FBF9F2", fontSize:15, fontWeight:700, cursor:"pointer" }}>저장</button>
@@ -578,7 +810,7 @@ function Editor({ dateKey, draft, patch, kgText, setKgText, onCommit, onDelete, 
   );
 }
 
-ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+ReactDOM.createRoot(document.getElementById("root")).render(<Root />);
 </script>
 </body>
 </html>
