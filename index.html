@@ -260,24 +260,6 @@ function App({ user }){
     return { startKg, curKg, curDate, bmi, lost, toGoal, progress };
   }, [log, profile]);
 
-  const monthly = useMemo(() => {
-    const prefix = `${viewY}-${pad(viewM+1)}-`;
-    const list = Object.entries(log).filter(([k]) => k.startsWith(prefix)).map(([,v]) => normalize(v));
-    const m = {};
-    MEALS.forEach(x => { m[x.id] = list.filter(e => e[x.id]).length; });
-    const b = {};
-    BEAUTY.forEach(x => { b[x.id] = list.filter(e => e.beauty.includes(x.id)).length; });
-    return {
-      meals:m, beauty:b, logged:list.length,
-      latte: list.reduce((s,e) => s + (e.latte||0), 0),
-      cardio: list.filter(e => e.cardio).length,
-      strength: list.filter(e => e.strength).length,
-      move: list.filter(e => e.cardio || e.strength).length,
-      period: list.filter(e => e.period).length,
-      beautyDays: list.filter(e => e.beauty.length > 0).length,
-    };
-  }, [log, viewY, viewM]);
-
   const cells = useMemo(() => {
     const lead = new Date(viewY, viewM, 1).getDay();
     const days = new Date(viewY, viewM+1, 0).getDate();
@@ -387,66 +369,40 @@ function App({ user }){
           {cells.map((d,i) => {
             if (!d) return <div key={i} />;
             const k = keyOf(d), e = normalize(log[k]), isToday = k===tKey, isFuture = k > tKey;
-            const filled = hasAny(e);
             const c = e.kg != null && heightM ? categoryOf(e.kg/(heightM*heightM)) : null;
+            const meals = MEALS.filter(m => e[m.id]);
+            const ex = [e.cardio && "유산소", e.strength && "근력"].filter(Boolean);
             return (
               <button key={i} disabled={isFuture} onClick={() => openEditor(k)} style={{
-                aspectRatio:"1 / 1", border: isToday ? `1.5px solid ${C.sage}` : `1px solid ${C.line}`,
-                borderRadius:10, background: c ? `${c.color}1A` : filled ? "#F1EEE2" : C.card,
-                display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center",
-                padding:2, cursor: isFuture ? "default" : "pointer", opacity: isFuture ? 0.4 : 1, position:"relative" }}>
-                <span style={{ fontSize:10.5, color:C.sub, position:"absolute", top:3, left:5 }}>{d.getDate()}</span>
-                <span style={{ fontSize:12.5, fontWeight:700, color:C.ink, marginTop:6, minHeight:15 }}>
-                  {e.kg != null ? e.kg : ""}
-                </span>
-                <span style={{ display:"flex", gap:2.5, height:5, marginTop:3, alignItems:"center" }}>
-                  {c && <Dot color={c.color} />}
-                  {e.latte > 0 && <Dot color={C.latte} />}
-                  {e.night && <Dot color="#C2695E" />}
-                  {(e.cardio || e.strength) && <Dot color={C.move} ring />}
-                  {e.beauty.length > 0 && <Dot color={C.pink} />}
-                </span>
-                {e.period && <span style={{ position:"absolute", left:7, right:7, bottom:3.5,
-                  height:2.5, borderRadius:2, background:C.period }} />}
+                minHeight:88, border: isToday ? `1.5px solid ${C.sage}` : `1px solid ${C.line}`,
+                borderRadius:9, background: isToday ? "#F7F5EC" : C.card,
+                display:"flex", flexDirection:"column", alignItems:"stretch", gap:1.5,
+                padding:"3px 3px 6px", cursor: isFuture ? "default" : "pointer",
+                opacity: isFuture ? 0.4 : 1, position:"relative", overflow:"hidden" }}>
+                <span style={{ fontSize:10, fontWeight:700, textAlign:"left", paddingLeft:2,
+                  color: d.getDay()===0 ? "#C2695E" : d.getDay()===6 ? "#6E86B0" : C.sub }}>{d.getDate()}</span>
+                {e.kg != null && <Tag color={c ? c.color : C.sub} text={e.kg + ""} solid />}
+                {e.latte > 0 && <Tag color={C.latte} text={"라떼" + e.latte} />}
+                {meals.map(m => <Tag key={m.id} color={m.color} text={m.label} />)}
+                {ex.length > 0 && <Tag color={C.sage} text={ex.length === 2 ? "운동" : ex[0]} />}
+                {e.beauty.length > 0 && (
+                  <Tag color={C.pink} text={e.beauty.length === 1
+                    ? (BEAUTY.find(b => b.id === e.beauty[0]) || {}).label
+                    : "뷰티" + e.beauty.length} />
+                )}
+                {e.period && <span style={{ position:"absolute", left:0, right:0, bottom:0,
+                  height:3, background:C.period }} />}
               </button>
             );
           })}
         </div>
         <div style={{ display:"flex", gap:12, justifyContent:"center", marginTop:12, flexWrap:"wrap" }}>
           <Legend color={C.under} text="저체중" /><Legend color={C.normal} text="표준" />
-          <Legend color={C.ob} text="비만" /><Legend color={C.latte} text="라떼" />
-          <Legend color="#C2695E" text="야식" /><Legend color={C.move} text="운동" ring />
-          <Legend color={C.pink} text="뷰티" /><Legend color={C.period} text="생리" bar />
+          <Legend color={C.ob} text="비만" /><Legend color={C.period} text="생리" bar />
         </div>
       </Card>
 
-      <Card style={{ marginTop:12 }}>
-        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", marginBottom:12 }}>
-          <div style={{ ...titleFont, fontSize:16, color:C.ink }}>{viewM+1}월 기록</div>
-          <div style={{ fontSize:11.5, color:C.sub }}>{monthly.logged}일</div>
-        </div>
-        <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8 }}>
-          <Tally label="바닐라라떼" value={monthly.latte} unit="잔" color={C.latte} />
-          {MEALS.map(m => <Tally key={m.id} label={m.label} value={monthly.meals[m.id]} unit="일" color={m.color} />)}
-          <Tally label="유산소" value={monthly.cardio} unit="일" color={C.sage} />
-          <Tally label="근력" value={monthly.strength} unit="일" color={C.sage} />
-          <Tally label="생리" value={monthly.period} unit="일" color={C.period} />
-        </div>
-        {monthly.beautyDays > 0 && (
-          <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginTop:10, justifyContent:"center" }}>
-            {BEAUTY.filter(b => monthly.beauty[b.id] > 0).map(b => (
-              <span key={b.id} style={{ fontSize:11.5, fontWeight:700, color:C.pink, background:`${C.pink}14`,
-                border:`1px solid ${C.pink}40`, padding:"4px 10px", borderRadius:99 }}>
-                {b.label} {monthly.beauty[b.id]}
-              </span>
-            ))}
-          </div>
-        )}
-        <div style={{ fontSize:12, color:C.sub, marginTop:12, textAlign:"center" }}>
-          운동한 날 <b style={{ color:C.sage }}>{monthly.move}일</b>
-          {monthly.latte > 0 && <> · 라떼 하루 평균 <b style={{ color:C.latte }}>{(monthly.latte/Math.max(1,monthly.logged)).toFixed(1)}잔</b></>}
-        </div>
-      </Card>
+      <WeightChart log={log} profile={profile} viewY={viewY} viewM={viewM} />
 
       <button onClick={() => setShowSettings(s => !s)} style={{
         marginTop:14, width:"100%", background:"none", border:"none", color:C.sub,
@@ -513,6 +469,120 @@ function TodayMarks({ e }){
     </div>
   );
 }
+function Tag({ color, text, solid }){
+  return (
+    <span style={{ display:"block", fontSize:8.5, fontWeight:700, lineHeight:1.35,
+      borderRadius:3, padding:"1.5px 2px", whiteSpace:"nowrap", overflow:"hidden",
+      textOverflow:"clip", textAlign:"center",
+      background: solid ? color : `${color}22`, color: solid ? "#fff" : color }}>{text}</span>
+  );
+}
+
+function WeightChart({ log, profile, viewY, viewM }){
+  const [range, setRange] = useState("month");
+  const pts = useMemo(() => {
+    const all = Object.entries(log).map(([k,v]) => [k, normalize(v)])
+      .filter(([,v]) => typeof v.kg === "number")
+      .sort((x,y) => x[0] < y[0] ? -1 : 1)
+      .map(([k,v]) => ({ t:new Date(k+"T00:00:00").getTime(), kg:v.kg, key:k }));
+    if (range === "month"){
+      const s0 = new Date(viewY, viewM, 1).getTime();
+      const e0 = new Date(viewY, viewM+1, 0, 23, 59).getTime();
+      return all.filter(p => p.t >= s0 && p.t <= e0);
+    }
+    if (range === "90"){
+      const s0 = Date.now() - 90*86400000;
+      return all.filter(p => p.t >= s0);
+    }
+    return all;
+  }, [log, range, viewY, viewM]);
+
+  const W = 320, H = 158, PL = 30, PR = 10, PT = 14, PB = 22;
+  const goal = profile ? profile.goalKg : null;
+
+  let body;
+  if (pts.length === 0){
+    body = <div style={{ height:H, display:"flex", alignItems:"center", justifyContent:"center",
+      color:C.sub, fontSize:13 }}>이 기간엔 몸무게 기록이 없어요</div>;
+  } else {
+    const kgs = pts.map(p => p.kg);
+    let lo = Math.min(...kgs), hi = Math.max(...kgs);
+    if (goal != null){ lo = Math.min(lo, goal); hi = Math.max(hi, goal); }
+    if (hi - lo < 1.5){ const c0 = (hi+lo)/2; lo = c0 - 0.9; hi = c0 + 0.9; }
+    const padY = (hi - lo) * 0.15; lo -= padY; hi += padY;
+    const t0 = pts[0].t, t1 = pts[pts.length-1].t;
+    const X = t => pts.length === 1 ? (PL + (W-PL-PR)/2)
+      : PL + ((t - t0)/(t1 - t0 || 1)) * (W - PL - PR);
+    const Y = kg => PT + (1 - (kg - lo)/(hi - lo)) * (H - PT - PB);
+    const line = pts.map((p,i) => `${i?"L":"M"}${X(p.t).toFixed(1)},${Y(p.kg).toFixed(1)}`).join(" ");
+    const area = pts.length > 1
+      ? `${line} L${X(t1).toFixed(1)},${H-PB} L${X(t0).toFixed(1)},${H-PB} Z` : null;
+    const first = pts[0].kg, last = pts[pts.length-1].kg, diff = last - first;
+    const fmtD = t => { const d = new Date(t); return `${d.getMonth()+1}.${d.getDate()}`; };
+    body = (
+      <div>
+        <svg viewBox={`0 0 ${W} ${H}`} style={{ width:"100%", height:"auto", display:"block" }}>
+          <defs>
+            <linearGradient id="wg" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={C.sage} stopOpacity="0.22" />
+              <stop offset="100%" stopColor={C.sage} stopOpacity="0" />
+            </linearGradient>
+          </defs>
+          {[hi, (hi+lo)/2, lo].map((v,i) => (
+            <g key={i}>
+              <line x1={PL} y1={Y(v)} x2={W-PR} y2={Y(v)} stroke={C.line} strokeWidth="1" />
+              <text x={PL-5} y={Y(v)+3.5} textAnchor="end" fontSize="8.5" fill={C.sub}>{v.toFixed(1)}</text>
+            </g>
+          ))}
+          {goal != null && goal > lo && goal < hi && (
+            <g>
+              <line x1={PL} y1={Y(goal)} x2={W-PR} y2={Y(goal)} stroke={C.gold}
+                strokeWidth="1.4" strokeDasharray="4 3" />
+              <text x={W-PR} y={Y(goal)-4} textAnchor="end" fontSize="8.5" fill={C.gold} fontWeight="700">목표</text>
+            </g>
+          )}
+          {area && <path d={area} fill="url(#wg)" />}
+          <path d={line} fill="none" stroke={C.sage} strokeWidth="2"
+            strokeLinejoin="round" strokeLinecap="round" />
+          {pts.map((p,i) => (
+            <circle key={i} cx={X(p.t)} cy={Y(p.kg)} r={i === pts.length-1 ? 3.6 : 2.2}
+              fill={i === pts.length-1 ? C.sage : "#FBF9F2"} stroke={C.sage} strokeWidth="1.6" />
+          ))}
+          <text x={PL} y={H-6} fontSize="8.5" fill={C.sub}>{fmtD(t0)}</text>
+          {pts.length > 1 && <text x={W-PR} y={H-6} textAnchor="end" fontSize="8.5" fill={C.sub}>{fmtD(t1)}</text>}
+        </svg>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", marginTop:8 }}>
+          <span style={{ fontSize:12, color:C.sub }}>{pts.length}번 기록</span>
+          {pts.length > 1 && (
+            <span style={{ fontSize:13, fontWeight:700, color: diff <= 0 ? C.under : C.ob }}>
+              {diff <= 0 ? "−" : "+"}{Math.abs(diff).toFixed(1)}kg
+            </span>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  const tab = (id, label) => (
+    <button key={id} onClick={() => setRange(id)} style={{ padding:"5px 11px", borderRadius:99,
+      border:`1px solid ${range===id ? C.sage : C.line}`, cursor:"pointer",
+      background: range===id ? C.sage : "#fff", color: range===id ? "#FBF9F2" : C.sub,
+      fontSize:11.5, fontWeight:700 }}>{label}</button>
+  );
+
+  return (
+    <Card style={{ marginTop:12 }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
+        <div style={{ ...titleFont, fontSize:16, color:C.ink }}>몸무게 추이</div>
+        <div style={{ display:"flex", gap:5 }}>
+          {tab("month", `${viewM+1}월`)}{tab("90","3개월")}{tab("all","전체")}
+        </div>
+      </div>
+      {body}
+    </Card>
+  );
+}
+
 function Tally({ label, value, unit, color }){
   return (
     <div style={{ background:"#fff", border:`1px solid ${C.line}`, borderRadius:13, padding:"10px 6px", textAlign:"center" }}>
