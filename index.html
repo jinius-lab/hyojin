@@ -87,11 +87,13 @@ const MEALS = [
   { id:"snack",     label:"간식", color:"#C6A64F" },
   { id:"night",     label:"야식", color:"#C2695E" },
 ];
-const BEAUTY = [
-  { id:"lash", label:"속눈썹" },
-  { id:"nail", label:"매니 / 페디" },
-  { id:"wax",  label:"왁싱" },
-  { id:"hair", label:"머리" },
+const EVENTS = [
+  { id:"lash",   label:"속눈썹" },
+  { id:"nail",   label:"매니 / 페디" },
+  { id:"wax",    label:"왁싱" },
+  { id:"hair",   label:"머리" },
+  { id:"eatout", label:"외식" },
+  { id:"family", label:"가족행사" },
 ];
 const MAX_LATTE = 10;
 
@@ -112,20 +114,20 @@ const PROFILE_KEY = "wd_profile_v1", LOG_KEY = "wd_log_v3", LOG_V2 = "wd_log_v2"
 
 /* ---------- entry model ---------- */
 const EMPTY = { kg:null, latte:0, breakfast:false, lunch:false, dinner:false, snack:false, night:false,
-                cardio:false, strength:false, beauty:[], period:false };
+                cardio:false, strength:false, event:[], period:false, trip:false };
 const normalize = e => {
-  if (e == null) return { ...EMPTY, beauty:[] };
-  if (typeof e === "number") return { ...EMPTY, kg:e, beauty:[] };
+  if (e == null) return { ...EMPTY, event:[] };
+  if (typeof e === "number") return { ...EMPTY, kg:e, event:[] };
   const o = { ...EMPTY, ...e };
-  o.beauty = Array.isArray(e.beauty) ? e.beauty.slice() : [];
-  /* v2 → v3 */
-  if (e.lash && !o.beauty.includes("lash")) o.beauty.push("lash");
-  if (e.salon && !o.beauty.includes("hair")) o.beauty.push("hair");
-  delete o.lash; delete o.salon; delete o.none;
+  o.event = Array.isArray(e.event) ? e.event.slice() : [];
+  /* 예전 beauty 배열 → event 로 이전 */
+  if (Array.isArray(e.beauty)) e.beauty.forEach(id => { if (!o.event.includes(id)) o.event.push(id); });
+  if (e.salon && !o.event.includes("hair")) o.event.push("hair");
+  delete o.beauty; delete o.lash; delete o.salon; delete o.nail; delete o.wax; delete o.hair; delete o.none; delete o.eatout; delete o.family;
   return o;
 };
 const hasAny = e => e.kg != null || e.latte > 0 || MEALS.some(m => e[m.id])
-  || e.cardio || e.strength || e.period || (e.beauty && e.beauty.length > 0);
+  || e.cardio || e.strength || e.period || e.trip || (e.event && e.event.length > 0);
 
 function loadLog(){
   const v3 = store.getJSON(LOG_KEY);
@@ -385,11 +387,12 @@ function App({ user }){
                 {e.latte > 0 && <Tag color={C.latte} text={"라떼" + e.latte} />}
                 {meals.map(m => <Tag key={m.id} color={m.color} text={m.label} />)}
                 {ex.length > 0 && <Tag color={C.sage} text={ex.length === 2 ? "운동" : ex[0]} />}
-                {e.beauty.length > 0 && (
-                  <Tag color={C.pink} text={e.beauty.length === 1
-                    ? (BEAUTY.find(b => b.id === e.beauty[0]) || {}).label
-                    : "뷰티" + e.beauty.length} />
+                {e.event.length > 0 && (
+                  <Tag color={C.pink} text={e.event.length === 1
+                    ? (EVENTS.find(x => x.id === e.event[0]) || {}).label
+                    : "이벤트" + e.event.length} />
                 )}
+                {e.trip && <Tag color={C.pink} text="여행" />}
                 {e.period && <span style={{ position:"absolute", left:0, right:0, bottom:0,
                   height:3, background:C.period }} />}
               </button>
@@ -457,7 +460,8 @@ function TodayMarks({ e }){
   MEALS.forEach(m => { if (e[m.id]) items.push({ t:m.label, c:m.color }); });
   if (e.cardio) items.push({ t:"유산소", c:C.sage });
   if (e.strength) items.push({ t:"근력", c:C.sage });
-  e.beauty.forEach(id => { const b = BEAUTY.find(x => x.id===id); if (b) items.push({ t:b.label, c:C.pink }); });
+  e.event.forEach(id => { const x = EVENTS.find(v => v.id===id); if (x) items.push({ t:x.label, c:C.pink }); });
+  if (e.trip) items.push({ t:"여행", c:C.pink });
   if (e.period) items.push({ t:"생리중", c:C.period });
   if (!items.length) return null;
   return (
@@ -772,19 +776,19 @@ function Chip({ label, active, color, onClick, small }){
   );
 }
 function Editor({ dateKey, draft, patch, kgText, setKgText, onCommit, onDelete, onClose, heightM }){
-  const [beautyOpen, setBeautyOpen] = useState(draft.beauty.length > 0);
+  const [eventOpen, setEventOpen] = useState(draft.event.length > 0);
+  const toggleEvent = id => {
+    const has = draft.event.includes(id);
+    patch({ event: has ? draft.event.filter(x => x !== id) : [...draft.event, id] });
+  };
+  const eventText = draft.event.length === 0 ? "해당없음"
+    : EVENTS.filter(x => draft.event.includes(x.id)).map(x => x.label).join(" · ");
   const kg = parseFloat(kgText);
   const cat = heightM && kg > 0 ? categoryOf(kg/(heightM*heightM)) : null;
   const dObj = new Date(dateKey + "T00:00:00");
   const day = dObj.getDate();
   const wd = WEEKDAYS[dObj.getDay()];
   const wdColor = dObj.getDay() === 0 ? "#C2695E" : dObj.getDay() === 6 ? "#6E86B0" : C.sub;
-  const toggleBeauty = id => {
-    const has = draft.beauty.includes(id);
-    patch({ beauty: has ? draft.beauty.filter(x => x !== id) : [...draft.beauty, id] });
-  };
-  const beautyText = draft.beauty.length === 0 ? "해당없음"
-    : BEAUTY.filter(b => draft.beauty.includes(b.id)).map(b => b.label).join(" · ");
   return (
     <div onClick={onClose} style={{ position:"fixed", inset:0, background:"rgba(37,48,42,.28)",
       display:"flex", alignItems:"flex-end", justifyContent:"center", zIndex:50 }}>
@@ -842,21 +846,21 @@ function Editor({ dateKey, draft, patch, kgText, setKgText, onCommit, onDelete, 
         </div>
 
         <div style={{ height:16 }} />
-        <SheetLabel right={<span style={{ fontSize:11, color:C.sub }}>복수 선택 가능</span>}>BEAUTY</SheetLabel>
-        <button onClick={() => setBeautyOpen(o => !o)} style={{ width:"100%", display:"flex",
+        <SheetLabel right={<span style={{ fontSize:11, color:C.sub }}>복수 선택 가능</span>}>이벤트</SheetLabel>
+        <button onClick={() => setEventOpen(o => !o)} style={{ width:"100%", display:"flex",
           alignItems:"center", justifyContent:"space-between", background:"#fff", cursor:"pointer",
-          border:`1.5px solid ${draft.beauty.length ? C.pink : C.line}`, borderRadius:14, padding:"13px 14px" }}>
-          <span style={{ fontSize:14.5, fontWeight:700, color: draft.beauty.length ? C.pink : C.gray }}>{beautyText}</span>
-          <span style={{ fontSize:12, color:C.sub, transform: beautyOpen ? "rotate(180deg)" : "none" }}>▾</span>
+          border:`1.5px solid ${draft.event.length ? C.pink : C.line}`, borderRadius:14, padding:"13px 14px" }}>
+          <span style={{ fontSize:14.5, fontWeight:700, color: draft.event.length ? C.pink : C.gray }}>{eventText}</span>
+          <span style={{ fontSize:12, color:C.sub, transform: eventOpen ? "rotate(180deg)" : "none" }}>▾</span>
         </button>
-        {beautyOpen && (
+        {eventOpen && (
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:6, marginTop:6 }}>
-            {BEAUTY.map(b => (
-              <Chip key={b.id} small label={b.label} active={draft.beauty.includes(b.id)}
-                color={C.pink} onClick={() => toggleBeauty(b.id)} />
+            {EVENTS.map(x => (
+              <Chip key={x.id} small label={x.label} active={draft.event.includes(x.id)}
+                color={C.pink} onClick={() => toggleEvent(x.id)} />
             ))}
-            <Chip small label="해당없음" active={draft.beauty.length === 0} color={C.gray}
-              onClick={() => patch({ beauty: [] })} />
+            <Chip small label="해당없음" active={draft.event.length === 0} color={C.gray}
+              onClick={() => patch({ event: [] })} />
           </div>
         )}
 
@@ -864,6 +868,7 @@ function Editor({ dateKey, draft, patch, kgText, setKgText, onCommit, onDelete, 
         <SheetLabel>컨디션</SheetLabel>
         <div style={{ display:"flex", gap:6 }}>
           <Chip label="생리중" active={draft.period} color={C.period} onClick={() => patch({ period: !draft.period })} />
+          <Chip label="여행" active={draft.trip} color={C.pink} onClick={() => patch({ trip: !draft.trip })} />
           <span style={{ flex:1 }} />
         </div>
 
