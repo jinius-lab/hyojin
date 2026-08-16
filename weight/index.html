@@ -375,12 +375,12 @@ function App({ user }){
             const meals = MEALS.filter(m => e[m.id]);
             const ex = [e.cardio && "유산소", e.strength && "근력"].filter(Boolean);
             return (
-              <button key={i} disabled={isFuture} onClick={() => openEditor(k)} style={{
+              <button key={i} onClick={() => openEditor(k)} style={{
                 minHeight:88, border: isToday ? `1.5px solid ${C.sage}` : `1px solid ${C.line}`,
                 borderRadius:9, background: isToday ? "#F7F5EC" : C.card,
                 display:"flex", flexDirection:"column", alignItems:"stretch", gap:1.5,
-                padding:"3px 3px 6px", cursor: isFuture ? "default" : "pointer",
-                opacity: isFuture ? 0.4 : 1, position:"relative", overflow:"hidden" }}>
+                padding:"3px 3px 6px", cursor: "pointer",
+                opacity: isFuture ? 0.72 : 1, position:"relative", overflow:"hidden" }}>
                 <span style={{ fontSize:10, fontWeight:700, textAlign:"left", paddingLeft:2,
                   color: d.getDay()===0 ? "#C2695E" : d.getDay()===6 ? "#6E86B0" : C.sub }}>{d.getDate()}</span>
                 {e.kg != null && <Tag color={c ? c.color : C.sub} text={e.kg + ""} solid />}
