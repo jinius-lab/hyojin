@@ -292,7 +292,7 @@
 <div class="header">
   <div class="header-group"><span style="font-size:10px;letter-spacing:5px;color:#3D6042;">HYOJIN, the daughter of God</span></div>
   <div class="header-title">도약 프로젝트</div>
-  <div class="header-sub">8/17 → 12월 합격 그날까지</div>
+  <div class="header-sub">8/31 → 12월 합격 그날까지</div>
 </div>
 
 <!-- Tabs -->
@@ -367,14 +367,14 @@
   <div class="daily-goals-box">
     <div class="daily-goals-title">매일 해야 할 양</div>
     <div class="daily-goal-row">
-      <div><div class="dg-label">논리 (8/17~9/6)</div><div class="dg-note">논리1 8/17~8/21 하루 24강 → 논리2 8/22~9/6 하루 14강 · 1.5배속</div></div>
-      <div class="dg-amount" style="color:#C6A64F">~135분/일</div>
+      <div><div class="dg-label">논리 (8/31~9/30)</div><div class="dg-note">논리1 8/31~9/4 하루 24강 → 논리2 9/5~9/30 하루 9강 · 1.5배속</div></div>
+      <div class="dg-amount" style="color:#C6A64F">~100분/일</div>
     </div>
     <div class="daily-goal-row">
       <div>
         <div class="dg-label">수학 강의 (1.5배속)</div>
         <div class="dg-note">
-          미적분 8/17~9/10<br>선형대수 9/11~9/24<br>공업 9/25~11/13<br>미방 11/14~11/30<br>벡터 12/1~12/7<br><b>하루 4강 (~150분, 1.5배속) · 12/7 완료</b>
+          미적분 8/31~9/20<br>선형대수 9/21~10/2<br>공업 10/3~11/14<br>미방 11/15~11/28<br>벡터 11/29~12/4<br><b>하루 5강 (~175분, 1.5배속) · 12/5 완료</b>
         </div>
       </div>
       <div class="dg-amount" style="color:#3D6042">과목별</div>
@@ -416,7 +416,7 @@
   </div>
 </div>
 
-<div class="footer">HYOJIN, the daughter of God · 도약 프로젝트 · 8/17 시작</div>
+<div class="footer">HYOJIN, the daughter of God · 도약 프로젝트 · 8/31 시작</div>
 
 <div id="sync-badge"></div>
 
@@ -424,8 +424,8 @@
 // ── Data ──
 const fixedTasks = [
   { id:"pray",     label:"기도",      time:"50분",    icon:"🙏", color:"#3D6042" },
-  { id:"logic",    label:"논리 강의", time:"매일",    icon:"📐", color:"#C6A64F", note:"논리1: 8/17~8/21 · 120강 · 하루 24강 → 논리2: 8/22~9/6 · 218강 · 하루 14강 (1.5배속)" },
-  { id:"math",     label:"수학 강의", time:"과목별",  icon:"📚", color:"#C97CA0", note:"8/17 시작 · 하루 4강(~150분, 1.5배속) · 미적분(8/17~9/10) → 선대(9/11~9/24) → 공업(9/25~11/13) → 미방(11/14~11/30) → 벡터(12/1~12/7) · 12/7 완료" },
+  { id:"logic",    label:"논리 강의", time:"매일",    icon:"📐", color:"#C6A64F", note:"논리1: 8/31~9/4 · 120강 · 하루 24강 → 논리2: 9/5~9/30 · 218강 · 하루 9강 (1.5배속)" },
+  { id:"math",     label:"수학 강의", time:"과목별",  icon:"📚", color:"#C97CA0", note:"8/31 시작 · 하루 5강(~175분, 1.5배속) · 미적분(8/31~9/20) → 선대(9/21~10/2) → 공업(10/3~11/14) → 미방(11/15~11/28) → 벡터(11/29~12/4) · 12/5 완료" },
   { id:"teps",     label:"TEPS",      time:"이동 중", icon:"🎧", color:"#3D6042", note:"9/12 시험 · 이동 중 청취" },
   { id:"writing",  label:"서술 연습", time:"30분",    icon:"✍️", color:"#C97CA0", note:"8/30부터 · 서답형 연습" },
 ];
@@ -437,7 +437,7 @@ const mathSubjects = [
   { id:"engi",   name:"공업수학",     total:222, color:"#3D6042" },
   { id:"vector", name:"벡터미적분학", total:26,  color:"#C97CA0" },
   { id:"lapla",  name:"라플라스 변환",     total:11,  color:"#3D6042" },
-  { id:"logic1", name:"논리1 (8/17~8/21)", total:120, color:"#6b9e8a" },
+  { id:"logic1", name:"논리1 (8/31~9/4)", total:120, color:"#6b9e8a" },
   { id:"logic2", name:"논리2",        total:218, color:"#6b9e8a" },
 ];
 
@@ -477,7 +477,7 @@ function bookChapters(testament, book) {
 
 // ── State ──
 let state = {
-  selectedDate: '2026-08-17',
+  selectedDate: '2026-08-31',
   checks: {},       // {date: {id: 'none'|'doing'|'done'|'skip'}}
   taskMemos: {},    // {date: {id: string}}
   customTasks: {},  // {date: [{id,type,name}]}
@@ -540,10 +540,10 @@ function switchTab(tab) {
 }
 
 // ── Date ──
-const START_DATE = '2026-08-17';
+const START_DATE = '2026-08-31';
 function changeDate(n) {
   const next = addDays(state.selectedDate, n);
-  if (next < START_DATE) return;   // 8/16 이전 날짜 차단
+  if (next < START_DATE) return;   // 8/30 이전 날짜 차단
   state.selectedDate = next;
   render();
 }
